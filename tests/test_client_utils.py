@@ -145,6 +145,7 @@ def test_invalid_cloud_id(cloud_id):
 @pytest.mark.parametrize(
     ["url", "node_base_url", "path_prefix"],
     [
+        ("https://localhost", "https://localhost:443", ""),
         ("http://localhost:3002", "http://localhost:3002", ""),
         ("http://127.0.0.1:3002", "http://127.0.0.1:3002", ""),
         ("http://127.0.0.1:3002/", "http://127.0.0.1:3002", ""),
@@ -156,6 +157,11 @@ def test_invalid_cloud_id(cloud_id):
         (
             "http://localhost:3002/url-prefix/",
             "http://localhost:3002/url-prefix",
+            "/url-prefix",
+        ),
+        (
+            "https://localhost/url-prefix",
+            "https://localhost:443/url-prefix",
             "/url-prefix",
         ),
         ("http://[::1]:3002/url-prefix", "http://[::1]:3002/url-prefix", "/url-prefix"),
@@ -198,6 +204,20 @@ def test_url_to_node_config_error_missing_component(url):
     )
 
 
+@pytest.mark.parametrize(
+    ["url", "port"],
+    [
+        ("http://127.0.0.1", 80),
+        ("http://[::1]", 80),
+        ("HTTPS://localhost", 443),
+        ("https://localhost/url-prefix", 443),
+    ],
+)
+def test_url_to_node_config_use_default_ports_for_scheme(url, port):
+    node_config = url_to_node_config(url, use_default_ports_for_scheme=True)
+    assert node_config.port == port
+
+
 def test_url_with_auth_into_authorization():
     node_config = url_to_node_config("http://localhost:9200")
     assert node_config.headers == {}
@@ -216,8 +236,15 @@ def test_url_with_auth_into_authorization():
 
     node_config = url_to_node_config("http://me@example.com:password@localhost:9200")
     assert node_config.headers == {
-        "Authorization": "Basic bWUlNDBleGFtcGxlLmNvbTpwYXNzd29yZA=="
+        "Authorization": "Basic bWVAZXhhbXBsZS5jb206cGFzc3dvcmQ="
     }
+
+    # ensure username and password are passed to basic auth unmodified
+    basic_auth = basic_auth_to_header(("user:@", "@password"))
+    node_config = url_to_node_config("http://user:@:@password@localhost:9200")
+    assert node_config.headers == {"Authorization": basic_auth}
+    node_config = url_to_node_config("http://user%3A%40:%40password@localhost:9200")
+    assert node_config.headers == {"Authorization": basic_auth}
 
 
 @pytest.mark.parametrize(

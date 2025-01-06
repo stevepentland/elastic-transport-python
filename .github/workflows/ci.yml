@@ -3,6 +3,9 @@ name: CI
 
 on: [push, pull_request]
 
+env:
+  FORCE_COLOR: 1
+
 jobs:
   package:
     runs-on: ubuntu-latest
@@ -10,15 +13,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v1
       - name: Set up Python 3.x
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
         with:
           python-version: 3.x
       - name: Install dependencies
-        run: |
-          python3 -m pip install setuptools wheel twine
+        run: python3 -m pip install setuptools wheel twine
       - name: Build dists
-        run: |
-          python3 utils/build-dists.py
+        run: python3 utils/build-dists.py
 
   lint:
     runs-on: ubuntu-latest
@@ -26,44 +27,54 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v1
       - name: Set up Python 3.x
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
         with:
           python-version: 3.x
       - name: Install dependencies
-        run: |
-          python3 -m pip install nox
+        run: python3 -m pip install nox
       - name: Lint the code
         run: nox -s lint
+        env:
+          # Workaround for development versions
+          # https://github.com/aio-libs/aiohttp/issues/7675
+          AIOHTTP_NO_EXTENSIONS: 1
 
   test:
     strategy:
       fail-fast: false
       matrix:
-        python-version: [3.6, 3.7, 3.8, 3.9, "3.10"]
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
+        os: ["ubuntu-latest"]
         experimental: [false]
+        nox-session: ['']
+        include:
+          - python-version: "3.8"
+            os: "ubuntu-latest"
+            experimental: false
+            nox-session: "test-min-deps"
 
-    runs-on: ubuntu-latest
-    name: test-${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    name: test-${{ matrix.python-version }} ${{ matrix.nox-session }}
     continue-on-error: ${{ matrix.experimental }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
 
       - name: Set up Python - ${{ matrix.python-version }}
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-
-      - name: Set up Python 3.7 to run nox
-        if: matrix.python-version != '3.7'
-        uses: actions/setup-python@v2
-        with:
-          python-version: 3.7
+          allow-prereleases: true
 
       - name: Install Dependencies
         run: python -m pip install --upgrade nox
 
       - name: Run tests
-        run: "nox -rs test-${PYTHON_VERSION%-dev}"
+        run: nox -s ${NOX_SESSION:-test-$PYTHON_VERSION}
         env:
           PYTHON_VERSION: ${{ matrix.python-version }}
+          NOX_SESSION: ${{ matrix.nox-session }}
+          # Required for development versions of Python
+          AIOHTTP_NO_EXTENSIONS: 1
+          FROZENLIST_NO_EXTENSIONS: 1
+          YARL_NO_EXTENSIONS: 1

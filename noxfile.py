@@ -29,8 +29,8 @@ SOURCE_FILES = (
 
 @nox.session()
 def format(session):
-    session.install("black", "isort", "pyupgrade")
-    session.run("black", "--target-version=py36", *SOURCE_FILES)
+    session.install("black~=24.0", "isort", "pyupgrade")
+    session.run("black", "--target-version=py37", *SOURCE_FILES)
     session.run("isort", *SOURCE_FILES)
     session.run("python", "utils/license-headers.py", "fix", *SOURCE_FILES)
 
@@ -40,17 +40,26 @@ def format(session):
 @nox.session
 def lint(session):
     session.install(
-        "flake8", "black", "isort", "mypy", "types-requests", "types-certifi"
+        "flake8",
+        "black~=24.0",
+        "isort",
+        "mypy==1.7.1",
+        "types-requests",
+        "types-certifi",
+    )
+    # https://github.com/python/typeshed/issues/10786
+    session.run(
+        "python", "-m", "pip", "uninstall", "--yes", "types-urllib3", silent=True
     )
     session.install(".[develop]")
-    session.run("black", "--check", "--target-version=py36", *SOURCE_FILES)
+    session.run("black", "--check", "--target-version=py37", *SOURCE_FILES)
     session.run("isort", "--check", *SOURCE_FILES)
-    session.run("flake8", "--ignore=E501,W503,E203", *SOURCE_FILES)
+    session.run("flake8", "--ignore=E501,W503,E203,E704", *SOURCE_FILES)
     session.run("python", "utils/license-headers.py", "check", *SOURCE_FILES)
     session.run("mypy", "--strict", "--show-error-codes", "elastic_transport/")
 
 
-@nox.session(python=["3.6", "3.7", "3.8", "3.9", "3.10"])
+@nox.session(python=["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"])
 def test(session):
     session.install(".[develop]")
     session.run(
@@ -62,10 +71,21 @@ def test(session):
     session.run("coverage", "report", "-m")
 
 
-@nox.session(python=["3"])
+@nox.session(name="test-min-deps", python="3.8")
+def test_min_deps(session):
+    session.install("-r", "requirements-min.txt", ".[develop]", silent=False)
+    session.run(
+        "pytest",
+        "--cov=elastic_transport",
+        *(session.posargs or ("tests/",)),
+        env={"PYTHONWARNINGS": "always::DeprecationWarning"},
+    )
+    session.run("coverage", "report", "-m")
+
+
+@nox.session(python="3")
 def docs(session):
     session.install(".[develop]")
-    session.install("-rdocs/sphinx/requirements.txt")
 
     session.chdir("docs/sphinx")
     session.run(

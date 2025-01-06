@@ -17,27 +17,39 @@
 
 import pytest
 
-import elastic_transport
-from elastic_transport import client_utils
-
-modules = pytest.mark.parametrize("module", [elastic_transport, client_utils])
+from elastic_transport._utils import is_ipaddress
 
 
-@modules
-def test__all__sorted(module):
-    module_all = module.__all__.copy()
-    # Optional dependencies are added at the end
-    if "OrjsonSerializer" in module_all:
-        module_all.remove("OrjsonSerializer")
-    assert module_all == sorted(module_all)
+@pytest.mark.parametrize(
+    "addr",
+    [
+        # IPv6
+        "::1",
+        "::",
+        "FE80::8939:7684:D84b:a5A4%251",
+        # IPv4
+        "127.0.0.1",
+        "8.8.8.8",
+        b"127.0.0.1",
+        # IPv6 w/ Zone IDs
+        "FE80::8939:7684:D84b:a5A4%251",
+        b"FE80::8939:7684:D84b:a5A4%251",
+        "FE80::8939:7684:D84b:a5A4%19",
+        b"FE80::8939:7684:D84b:a5A4%19",
+    ],
+)
+def test_is_ipaddress(addr):
+    assert is_ipaddress(addr)
 
 
-@modules
-def test__all__is_importable(module):
-    assert {attr for attr in module.__all__ if hasattr(module, attr)} == set(
-        module.__all__
-    )
-
-
-def test_module_rewritten():
-    assert repr(elastic_transport.Transport) == "<class 'elastic_transport.Transport'>"
+@pytest.mark.parametrize(
+    "addr",
+    [
+        "www.python.org",
+        b"www.python.org",
+        "v2.sg.media-imdb.com",
+        b"v2.sg.media-imdb.com",
+    ],
+)
+def test_is_not_ipaddress(addr):
+    assert not is_ipaddress(addr)

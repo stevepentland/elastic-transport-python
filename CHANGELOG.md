@@ -1,6 +1,79 @@
 # Changelog
 
-## 8.0.0-alpha7
+## 8.15.1 (2024-10-09)
+
+* Add explicit Python 3.13 support ([#189](https://github.com/elastic/elastic-transport-python/pull/189))
+
+## 8.15.0 (2024-08-09)
+
+* Removed call to `raise_for_status()` when using `HttpxAsyncHttpNode` to prevent exceptions being raised for 404 responses ([#182](https://github.com/elastic/elastic-transport-python/pull/182))
+* Documented response classes ([#175](https://github.com/elastic/elastic-transport-python/pull/175))
+* Dropped support for Python 3.7 ([#179](https://github.com/elastic/elastic-transport-python/pull/179))
+
+## 8.13.1 (2024-04-28)
+
+- Fixed requests 2.32 compatibility (#164)
+- Fixed TypeError when two nodes are declared dead at the same time (#115, contributed by @floxay)
+- Added `TransportApiResponse` (#160, #161, contributed by @JessicaGarson)
+
+## 8.13.0
+
+- Added support for the HTTPX client with asyncio (#137, contributed by @b4sus)
+- Added optional orjson serializer support (#152)
+
+## 8.12.0
+
+- Fix basic auth built from percent-encoded URLs (#143)
+
+## 8.11.0
+
+- Always set default HTTPS port to 443 (#127)
+- Drop support for Python 3.6 (#109)
+- Include tests in sdist (#122, contributed by @parona-source)
+- Fix `__iter__` return type to Iterator (#129, contributed by @altescy)
+
+## 8.10.0
+
+- Support urllib3 2.x in addition to urllib3 1.26.x ([#121](https://github.com/elastic/elastic-transport-python/pull/121))
+- Add 409 to `NOT_DEAD_NODE_HTTP_STATUSES` ([#120](https://github.com/elastic/elastic-transport-python/pull/120))
+
+## 8.4.1
+
+- Fixed an issue where a large number of consecutive failures to connect to a node would raise an `OverflowError`.
+- Fixed an issue to ensure that `ApiResponse` can be pickled.
+
+## 8.4.0
+
+### Added
+
+- Added method for clients to use default ports for URL scheme.
+
+## 8.1.2
+
+### Fixed
+
+- Fixed issue when connecting to an IP address with HTTPS enabled would result in a `ValueError` for a mismatch between `check_hostname` and `server_hostname`.
+
+## 8.1.1
+
+### Fixed
+
+- Fixed `JsonSerializer` to return `None` if a response using `Content-Type: application/json` is empty instead of raising an error.
+
+## 8.1.0
+
+### Fixed
+
+- Fixed `Urllib3HttpNode` and `RequestsHttpNode` to never require a valid certificate chain when using `ssl_assert_fingerprint`. Instead the internal HTTP client libraries will explicitly disable verifying the certificate chain and instead rely only on the certificate fingerprint for verification.
+
+## 8.0.1
+
+### Fixed
+
+- Fixed `AiohttpHttpNode` to close TLS connections that aren't properly shutdown by the server instead of leaking them
+- Fixed `Urllib3HttpNode` to respect `path_prefix` setting in `NodeConfig`
+
+## 8.0.0
 
 ### Added
 
@@ -28,12 +101,13 @@
 - Changed `NodeSelector.get_connection()` method to `get()`
 - Changed `elastic_transport.connection` logger name to `elastic_transport.node`
 - Changed `Urllib3HttpNode(connections_per_host)` parameter to `connections_per_node`
-- Changed return type of `BaseNode.perform_request()` to `Tuple[ApiResponseMeta, bytes]`
-- Changed return type of `Transport.perform_request()` to `Tuple[ApiResponseMeta, <deserialized>]`
+- Changed return type of `BaseNode.perform_request()` to `NamedTuple(meta=ApiResponseMeta, body=bytes)`
+- Changed return type of `Transport.perform_request()` to `NamedTuple(meta=ApiResponseMeta, body=Any)`
 - Changed name of `Deserializer` into `SerializersCollection`
 - Changed `ssl_version` to denote the minimum TLS version instead of the only TLS version
 - Changed the base class for `ApiError` to be `Exception` instead of `TransportError`.
   `TransportError` is now only for errors that occur at the transport layer.
+- Changed `Urllib3HttpNode` to block on new connections when the internal connection pool is exhausted
 
 ### Removed
 
@@ -43,6 +117,7 @@
 ### Fixed
 
 - Fixed a work-around with `AiohttpHttpNode` where `method="HEAD"` requests wouldn't mark the internal connection as reusable. This work-around is no longer needed when `aiohttp>=3.7.0` is installed.
+- Fixed logic for splitting `aiohttp.__version__` when determining if `HEAD` bug is fixed.
 
 ## 7.15.0 (2021-09-20)
 

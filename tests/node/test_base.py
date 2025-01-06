@@ -17,12 +17,33 @@
 
 import pytest
 
-from elastic_transport import AiohttpHttpNode, RequestsHttpNode, Urllib3HttpNode
+from elastic_transport import (
+    AiohttpHttpNode,
+    HttpxAsyncHttpNode,
+    NodeConfig,
+    RequestsHttpNode,
+    Urllib3HttpNode,
+)
+from elastic_transport._node._base import ssl_context_from_node_config
 
 
 @pytest.mark.parametrize(
-    "node_cls", [Urllib3HttpNode, RequestsHttpNode, AiohttpHttpNode]
+    "node_cls", [Urllib3HttpNode, RequestsHttpNode, AiohttpHttpNode, HttpxAsyncHttpNode]
 )
 def test_unknown_parameter(node_cls):
     with pytest.raises(TypeError):
         node_cls(unknown_option=1)
+
+
+@pytest.mark.parametrize(
+    "host, check_hostname",
+    [
+        ("127.0.0.1", False),
+        ("::1", False),
+        ("localhost", True),
+    ],
+)
+def test_ssl_context_from_node_config(host, check_hostname):
+    node_config = NodeConfig("https", host, 443)
+    ctx = ssl_context_from_node_config(node_config)
+    assert ctx.check_hostname == check_hostname

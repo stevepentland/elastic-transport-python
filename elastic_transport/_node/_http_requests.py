@@ -61,15 +61,25 @@ try:
             block: bool = False,
             **pool_kwargs: Any,
         ) -> None:
-
             if self._node_config.scheme == "https":
                 ssl_context = ssl_context_from_node_config(self._node_config)
                 pool_kwargs.setdefault("ssl_context", ssl_context)
 
-            if self._node_config.ssl_assert_fingerprint:
-                pool_kwargs.setdefault(
-                    "assert_fingerprint", self._node_config.ssl_assert_fingerprint
-                )
+                # Fingerprint verification doesn't require CA certificates being loaded.
+                # We also want to disable other verification methods as we only care
+                # about the fingerprint of the certificates, not whether they form
+                # a verified chain to a trust anchor.
+                if self._node_config.ssl_assert_fingerprint:
+                    # Manually disable these in the right order on the SSLContext
+                    # so urllib3 won't think we want conflicting things.
+                    ssl_context.check_hostname = False
+                    ssl_context.verify_mode = ssl.CERT_NONE
+
+                    pool_kwargs["assert_fingerprint"] = (
+                        self._node_config.ssl_assert_fingerprint
+                    )
+                    pool_kwargs["cert_reqs"] = "CERT_NONE"
+                    pool_kwargs["assert_hostname"] = False
 
             super().init_poolmanager(connections, maxsize, block=block, **pool_kwargs)  # type: ignore [no-untyped-call]
             self.poolmanager.pool_classes_by_scheme["https"] = HTTPSConnectionPool
@@ -100,7 +110,38 @@ class RequestsHttpNode(BaseNode):
         # Initialize Session so .headers works before calling super().__init__().
         self.session = requests.Session()
         self.session.headers.clear()  # Empty out all the default session headers
-        self.session.verify = config.verify_certs
+
+        if config.scheme == "https":
+            # If we're using ssl_assert_fingerprint we don't want
+            # to verify certificates the typical way. Instead we
+            # rely on the custom ElasticHTTPAdapter and urllib3.
+            if config.ssl_assert_fingerprint:
+                self.session.verify = False
+
+            # Otherwise we go the traditional route of verifying certs.
+            else:
+                if config.ca_certs:
+                    if not config.verify_certs:
+                        raise ValueError(
+                            "You cannot use 'ca_certs' when 'verify_certs=False'"
+                        )
+                    self.session.verify = config.ca_certs
+                else:
+                    self.session.verify = config.verify_certs
+
+                if not config.ssl_show_warn:
+                    urllib3.disable_warnings()
+
+                if (
+                    config.scheme == "https"
+                    and not config.verify_certs
+                    and config.ssl_show_warn
+                ):
+                    warnings.warn(
+                        f"Connecting to {self.base_url!r} using TLS with verify_certs=False is insecure",
+                        stacklevel=warn_stacklevel(),
+                        category=SecurityWarning,
+                    )
 
         # Requests supports setting 'session.auth' via _extras['requests.session.auth'] = ...
         try:
@@ -119,25 +160,6 @@ class RequestsHttpNode(BaseNode):
             else:
                 self.session.cert = config.client_cert
 
-        if config.ca_certs:
-            if not config.verify_certs:
-                raise ValueError("You cannot use 'ca_certs' when 'verify_certs=False'")
-            self.session.verify = config.ca_certs
-
-        if not config.ssl_show_warn:
-            urllib3.disable_warnings()  # type: ignore[no-untyped-call]
-
-        if (
-            config.scheme == "https"
-            and not config.verify_certs
-            and config.ssl_show_warn
-        ):
-            warnings.warn(
-                f"Connecting to {self.base_url!r} using TLS with verify_certs=False is insecure",
-                stacklevel=warn_stacklevel(),
-                category=SecurityWarning,
-            )
-
         # Create and mount custom adapter for constraining number of connections
         adapter = _ElasticHTTPAdapter(
             node_config=config,
@@ -147,7 +169,18 @@ class RequestsHttpNode(BaseNode):
         )
         # Preload the HTTPConnectionPool so initialization issues
         # are raised here instead of in perform_request()
-        adapter.get_connection(self.base_url)  # type: ignore[no-untyped-call]
+        if hasattr(adapter, "get_connection_with_tls_context"):
+            request = requests.Request(method="GET", url=self.base_url)
+            prepared_request = self.session.prepare_request(request)
+            adapter.get_connection_with_tls_context(
+                prepared_request, verify=self.session.verify
+            )
+        else:
+            # elastic-transport is not vulnerable to CVE-2024-35195 because it uses
+            # requests.Session and an SSLContext without using the verify parameter.
+            # We should remove this branch when requiring requests 2.32 or later.
+            adapter.get_connection(self.base_url)
+
         self.session.mount(prefix=f"{self.scheme}://", adapter=adapter)
 
     def perform_request(
@@ -181,12 +214,14 @@ class RequestsHttpNode(BaseNode):
         )
         prepared_request = self.session.prepare_request(request)
         send_kwargs = {
-            "timeout": request_timeout
-            if request_timeout is not DEFAULT
-            else self.config.request_timeout
+            "timeout": (
+                request_timeout
+                if request_timeout is not DEFAULT
+                else self.config.request_timeout
+            )
         }
         send_kwargs.update(
-            self.session.merge_environment_settings(  # type: ignore[no-untyped-call]
+            self.session.merge_environment_settings(  # type: ignore[arg-type]
                 prepared_request.url, {}, None, None, None
             )
         )

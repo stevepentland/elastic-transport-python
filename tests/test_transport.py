@@ -17,6 +17,7 @@
 
 import random
 import re
+import ssl
 import threading
 import time
 import warnings
@@ -87,6 +88,26 @@ def test_body_bytes_get_passed_untouched():
     args, kwargs = calls[0]
     assert ("GET", "/") == args
     assert kwargs["body"] == b"\xe4\xbd\xa0\xe5\xa5\xbd"
+
+
+def test_empty_response_with_content_type():
+    t = Transport(
+        [
+            NodeConfig(
+                "http",
+                "localhost",
+                80,
+                _extras={"body": b"", "headers": {"Content-Type": "application/json"}},
+            )
+        ],
+        node_class=DummyNode,
+    )
+
+    resp = t.perform_request("GET", "/", headers={"Accept": "application/json"})
+
+    # Empty body is deserialized as 'None' instead of an error.
+    assert resp.meta.status == 200
+    assert resp.body is None
 
 
 def test_kwargs_passed_on_to_node_pool():
@@ -307,7 +328,7 @@ def test_node_class_as_string():
         Transport([NodeConfig("http", "localhost", 80)], node_class="huh?")
     assert str(e.value) == (
         "Unknown option for node_class: 'huh?'. "
-        "Available options are: 'aiohttp', 'requests', 'urllib3'"
+        "Available options are: 'aiohttp', 'httpxasync', 'requests', 'urllib3'"
     )
 
 
@@ -517,14 +538,19 @@ def test_error_sniffing_callback_without_sniffing_enabled():
 
 def test_heterogeneous_node_config_warning_with_sniffing():
     with warnings.catch_warnings(record=True) as w:
+        context = ssl.create_default_context()
         Transport(
             [
-                NodeConfig("http", "localhost", 80, path_prefix="/a"),
-                NodeConfig("http", "localhost", 81, path_prefix="/b"),
+                NodeConfig(
+                    "https", "localhost", 80, path_prefix="/a", ssl_context=context
+                ),
+                NodeConfig(
+                    "https", "localhost", 81, path_prefix="/b", ssl_context=context
+                ),
             ],
             sniff_on_start=True,
             sniff_callback=lambda *_: [
-                NodeConfig("http", "localhost", 80, path_prefix="/a")
+                NodeConfig("https", "localhost", 80, path_prefix="/a")
             ],
         )
 

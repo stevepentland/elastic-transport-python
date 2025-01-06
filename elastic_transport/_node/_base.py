@@ -22,6 +22,7 @@ import ssl
 from typing import Any, ClassVar, List, NamedTuple, Optional, Tuple, Union
 
 from .._models import ApiResponseMeta, HttpHeaders, NodeConfig
+from .._utils import is_ipaddress
 from .._version import __version__
 from ..client_utils import DEFAULT, DefaultType
 
@@ -141,6 +142,11 @@ class BaseNode:
 
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__}({self.base_url})>"
+
+    def __lt__(self, other: object) -> bool:
+        if not isinstance(other, BaseNode):
+            return NotImplemented
+        return id(self) < id(other)
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, BaseNode):
@@ -268,18 +274,20 @@ for i, _protocol_attr in enumerate(_SSL_PROTOCOL_VERSION_ATTRS):
         _SSL_PROTOCOL_VERSION_TO_TLS_VERSION[_tls_version_value] = _tls_version_value
 
     # Because we're setting a minimum version we binary OR all the options together.
-    _SSL_PROTOCOL_VERSION_TO_OPTIONS[
-        _protocol_value
-    ] = _SSL_PROTOCOL_VERSION_DEFAULT | sum(
-        getattr(ssl, f"OP_NO_{_attr}", 0) for _attr in _SSL_PROTOCOL_VERSION_ATTRS[:i]
+    _SSL_PROTOCOL_VERSION_TO_OPTIONS[_protocol_value] = (
+        _SSL_PROTOCOL_VERSION_DEFAULT
+        | sum(
+            getattr(ssl, f"OP_NO_{_attr}", 0)
+            for _attr in _SSL_PROTOCOL_VERSION_ATTRS[:i]
+        )
     )
 
 # TLSv1.3 is unique, doesn't have a PROTOCOL_TLSvX counterpart. So we have to set it manually.
 if _HAS_TLS_VERSION:
     try:
-        _SSL_PROTOCOL_VERSION_TO_TLS_VERSION[
+        _SSL_PROTOCOL_VERSION_TO_TLS_VERSION[ssl.TLSVersion.TLSv1_3] = (
             ssl.TLSVersion.TLSv1_3
-        ] = ssl.TLSVersion.TLSv1_3
+        )
     except AttributeError:  # pragma: nocover
         pass
 
@@ -295,7 +303,7 @@ def ssl_context_from_node_config(node_config: NodeConfig) -> ssl.SSLContext:
         # step if the user doesn't pass a preconfigured SSLContext.
         if node_config.verify_certs:
             ctx.verify_mode = ssl.CERT_REQUIRED
-            ctx.check_hostname = True
+            ctx.check_hostname = not is_ipaddress(node_config.host)
         else:
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE

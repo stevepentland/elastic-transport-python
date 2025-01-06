@@ -15,29 +15,20 @@
 #  specific language governing permissions and limitations
 #  under the License.
 
+import warnings
+
 import pytest
 
-import elastic_transport
-from elastic_transport import client_utils
-
-modules = pytest.mark.parametrize("module", [elastic_transport, client_utils])
+from elastic_transport import AsyncTransport
 
 
-@modules
-def test__all__sorted(module):
-    module_all = module.__all__.copy()
-    # Optional dependencies are added at the end
-    if "OrjsonSerializer" in module_all:
-        module_all.remove("OrjsonSerializer")
-    assert module_all == sorted(module_all)
+@pytest.mark.asyncio
+async def test_simple_request(https_server_ip_node_config):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
 
+        t = AsyncTransport([https_server_ip_node_config])
 
-@modules
-def test__all__is_importable(module):
-    assert {attr for attr in module.__all__ if hasattr(module, attr)} == set(
-        module.__all__
-    )
-
-
-def test_module_rewritten():
-    assert repr(elastic_transport.Transport) == "<class 'elastic_transport.Transport'>"
+        resp, data = await t.perform_request("GET", "/foobar")
+        assert resp.status == 200
+        assert data == {"foo": "bar"}

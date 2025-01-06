@@ -19,10 +19,10 @@ import gzip
 import re
 import ssl
 import warnings
+from unittest.mock import Mock, patch
 
 import pytest
 import urllib3
-from mock import Mock, patch
 from urllib3.response import HTTPHeaderDict
 
 from elastic_transport import NodeConfig, TransportError, Urllib3HttpNode
@@ -77,6 +77,24 @@ class TestUrllib3HttpNode:
         assert kwargs["body"] == b"hello, world!"
         assert "accept-encoding" not in kwargs["headers"]
         assert "content-encoding" not in kwargs["headers"]
+
+    @pytest.mark.parametrize(
+        ["request_target", "expected_target"],
+        [
+            ("/_search", "/prefix/_search"),
+            ("/?key=val", "/prefix/?key=val"),
+            ("/_search?key=val/", "/prefix/_search?key=val/"),
+        ],
+    )
+    def test_path_prefix_applied_to_target(self, request_target, expected_target):
+        node = self._get_mock_node(
+            NodeConfig("http", "localhost", 80, path_prefix="/prefix")
+        )
+
+        node.perform_request("GET", request_target)
+        (_, target), _ = node.pool.urlopen.call_args
+
+        assert target == expected_target
 
     @pytest.mark.parametrize("empty_body", [None, b""])
     def test_http_compression(self, empty_body):

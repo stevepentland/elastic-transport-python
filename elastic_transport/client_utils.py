@@ -19,6 +19,7 @@ import base64
 import binascii
 import dataclasses
 import re
+import urllib.parse
 from platform import python_version
 from typing import Optional, Tuple, TypeVar, Union
 from urllib.parse import quote as _quote
@@ -136,17 +137,17 @@ def parse_cloud_id(cloud_id: str) -> CloudId:
 def to_str(
     value: Union[str, bytes], encoding: str = "utf-8", errors: str = "strict"
 ) -> str:
-    if type(value) == bytes:
+    if isinstance(value, bytes):
         return value.decode(encoding, errors)
-    return value  # type: ignore[return-value]
+    return value
 
 
 def to_bytes(
     value: Union[str, bytes], encoding: str = "utf-8", errors: str = "strict"
 ) -> bytes:
-    if type(value) == str:
+    if isinstance(value, str):
         return value.encode(encoding, errors)
-    return value  # type: ignore[return-value]
+    return value
 
 
 # Python 3.7 added '~' to the safe list for urllib.parse.quote()
@@ -178,38 +179,67 @@ def basic_auth_to_header(basic_auth: Tuple[str, str]) -> str:
         raise ValueError(
             "'basic_auth' must be a 2-tuple of str/bytes (username, password)"
         )
-    return f"Basic {base64.b64encode((b':'.join(to_bytes(x) for x in basic_auth))).decode()}"
+    return (
+        f"Basic {base64.b64encode(b':'.join(to_bytes(x) for x in basic_auth)).decode()}"
+    )
 
 
-def url_to_node_config(url: str) -> NodeConfig:
+def url_to_node_config(
+    url: str, use_default_ports_for_scheme: bool = False
+) -> NodeConfig:
     """Constructs a :class:`elastic_transport.NodeConfig` instance from a URL.
     If a username/password are specified in the URL they are converted to an
-    'Authorization' header.
+    'Authorization' header. Always fills in a default port for HTTPS.
+
+    :param url: URL to transform into a NodeConfig.
+    :param use_default_ports_for_scheme: If 'True' will resolve default ports for HTTP.
     """
     try:
-        parsed_url = parse_url(url)  # type: ignore[no-untyped-call]
+        parsed_url = parse_url(url)
     except LocationParseError:
         raise ValueError(f"Could not parse URL {url!r}") from None
 
+    parsed_port: Optional[int] = parsed_url.port
+    if parsed_url.port is None and parsed_url.scheme is not None:
+        # Always fill in a default port for HTTPS
+        if parsed_url.scheme == "https":
+            parsed_port = 443
+        # Only fill HTTP default port when asked to explicitly
+        elif parsed_url.scheme == "http" and use_default_ports_for_scheme:
+            parsed_port = 80
+
     if any(
         component in (None, "")
-        for component in (parsed_url.scheme, parsed_url.host, parsed_url.port)
+        for component in (parsed_url.scheme, parsed_url.host, parsed_port)
     ):
         raise ValueError(
             "URL must include a 'scheme', 'host', and 'port' component (ie 'https://localhost:9200')"
         )
+    assert parsed_url.scheme is not None
+    assert parsed_url.host is not None
+    assert parsed_port is not None
 
     headers = {}
     if parsed_url.auth:
-        username, _, password = parsed_url.auth.partition(":")
+        # `urllib3.util.url_parse` ensures `parsed_url` is correctly
+        # percent-encoded but does not percent-decode userinfo, so we have to
+        # do it ourselves to build the basic auth header correctly.
+        encoded_username, _, encoded_password = parsed_url.auth.partition(":")
+        username = urllib.parse.unquote(encoded_username)
+        password = urllib.parse.unquote(encoded_password)
+
         headers["authorization"] = basic_auth_to_header((username, password))
 
     host = parsed_url.host.strip("[]")
-    path_prefix = "" if parsed_url.path in (None, "", "/") else parsed_url.path
+    if not parsed_url.path or parsed_url.path == "/":
+        path_prefix = ""
+    else:
+        path_prefix = parsed_url.path
+
     return NodeConfig(
         scheme=parsed_url.scheme,
         host=host,
-        port=parsed_url.port,
+        port=parsed_port,
         path_prefix=path_prefix,
         headers=headers,
     )

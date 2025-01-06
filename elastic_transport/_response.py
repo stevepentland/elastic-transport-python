@@ -19,10 +19,10 @@ from typing import (
     Any,
     Dict,
     Generic,
-    Iterable,
     Iterator,
     List,
     NoReturn,
+    Tuple,
     TypeVar,
     Union,
     overload,
@@ -97,10 +97,16 @@ class ApiResponse(Generic[_BodyType]):
     def __getattr__(self, attr: str) -> Any:
         return getattr(self._body, attr)
 
+    def __getstate__(self) -> Tuple[_BodyType, ApiResponseMeta]:
+        return self._body, self._meta
+
+    def __setstate__(self, state: Tuple[_BodyType, ApiResponseMeta]) -> None:
+        self._body, self._meta = state
+
     def __len__(self) -> int:
         return len(self._body)
 
-    def __iter__(self) -> Iterable[Any]:
+    def __iter__(self) -> Iterator[Any]:
         return iter(self._body)
 
     def __str__(self) -> str:
@@ -127,7 +133,7 @@ class ApiResponse(Generic[_BodyType]):
 class TextApiResponse(ApiResponse[str]):
     """API responses which are text such as 'text/plain' or 'text/csv'"""
 
-    def __iter__(self) -> Iterable[str]:
+    def __iter__(self) -> Iterator[str]:
         return iter(self.body)
 
     def __getitem__(self, item: Union[int, slice]) -> str:
@@ -141,16 +147,14 @@ class TextApiResponse(ApiResponse[str]):
 class BinaryApiResponse(ApiResponse[bytes]):
     """API responses which are a binary response such as Mapbox vector tiles"""
 
-    def __iter__(self) -> Iterable[int]:
+    def __iter__(self) -> Iterator[int]:
         return iter(self.body)
 
     @overload
-    def __getitem__(self, item: slice) -> bytes:
-        ...
+    def __getitem__(self, item: slice) -> bytes: ...
 
     @overload
-    def __getitem__(self, item: int) -> int:
-        ...
+    def __getitem__(self, item: int) -> int: ...
 
     def __getitem__(self, item: Union[int, slice]) -> Union[int, bytes]:
         return self.body[item]
@@ -195,19 +199,17 @@ class ListApiResponse(
     """API responses which are a list of items. Can be NDJSON or a JSON list"""
 
     @overload
-    def __getitem__(self, item: slice) -> List[_ListItemBodyType]:
-        ...
+    def __getitem__(self, item: slice) -> List[_ListItemBodyType]: ...
 
     @overload
-    def __getitem__(self, item: int) -> _ListItemBodyType:
-        ...
+    def __getitem__(self, item: int) -> _ListItemBodyType: ...
 
     def __getitem__(
         self, item: Union[int, slice]
     ) -> Union[_ListItemBodyType, List[_ListItemBodyType]]:
         return self.body[item]
 
-    def __iter__(self) -> Iterable[_ListItemBodyType]:
+    def __iter__(self) -> Iterator[_ListItemBodyType]:
         return iter(self.body)
 
     @property
